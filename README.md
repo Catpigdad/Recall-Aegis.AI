@@ -1,6 +1,6 @@
 # 🛡️ Recall-Aegis.AI
 
-An AI-powered authentication system that **replaces passwords** with personalized conversation memory. Instead of remembering a password, users log in by:
+An AI-powered identity agent that authenticates users through adaptive conversational verification and persistent interaction memory. Instead of remembering a password, users log in by:
 
 1. **Recalling their AI assistant's name** (bcrypt-hashed in the database)
 2. **Describing a topic from their last conversation** (verified via semantic similarity)
