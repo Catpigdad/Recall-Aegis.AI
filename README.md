@@ -19,7 +19,7 @@
 
 ## License and Distribution
 
-This repository is published under a proprietary license. Use, modification, distribution, and resale are restricted and require a valid commercial license. Please refer to the `LICENSE` file for full terms.
+This project is licensed under the **Apache License 2.0**. You're free to use, modify, distribute, and build commercial products with Recall-Aegis.AI without seeking permission. See the `LICENSE` file for full terms.
 
 ---
 
