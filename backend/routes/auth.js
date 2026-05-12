@@ -5,6 +5,10 @@ const { v4: uuidv4 } = require('uuid');
 const { query } = require('../db');
 const { encrypt, decrypt } = require('../services/cryptoService');
 const { generateSummary, evaluateSimilarity } = require('../services/aiService');
+const appService = require('../services/appService');
+const oauthService = require('../services/oauthService');
+const webhookService = require('../services/webhookService');
+const { generateRecoveryCode, validateRecoveryCode } = require('../services/recoveryService');
 
 const router = express.Router();
 
@@ -102,15 +106,20 @@ router.post('/signup', async (req, res) => {
         message: 'Account created successfully (demo mode — no database).',
         assistantReply,
         summary: summaryText,
+        recoveryCode: 'DEMO-DEMO-DEMO-DEMO',
         demo: true,
       });
     }
 
+    // --- Generate recovery code ---
+    const { plaintext: recoveryCode, hash: recoveryCodeHash } = await generateRecoveryCode();
+
     // --- Persist user and session ---
     const userId = uuidv4();
     await query(
-      `INSERT INTO users (id, email, assistant_name_hash) VALUES ($1, $2, $3)`,
-      [userId, normalizedEmail, nameHash]
+      `INSERT INTO users (id, email, assistant_name_hash, recovery_code_hash, recovery_code_generated_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [userId, normalizedEmail, nameHash, recoveryCodeHash]
     );
 
     await query(
@@ -122,6 +131,8 @@ router.post('/signup', async (req, res) => {
     return res.status(201).json({
       message: 'Account created successfully.',
       assistantReply,
+      recoveryCode,
+      recoveryCodeWarning: 'SAVE THIS CODE IN A SAFE PLACE. You will need it to recover your account if you lose access. This code will be shown only once.',
     });
   } catch (err) {
     console.error('Signup error:', err);
@@ -320,7 +331,49 @@ router.post('/login/verify-conversation', async (req, res) => {
     // --- Success ---
     await recordAttempt(email, true, 'conversation', ip);
 
-    // Issue a full-session JWT (8 hours)
+    // Check if this is an OAuth flow for a third-party app
+    const { appId, redirectUri, codeChallenge, state } = req.body;
+
+    if (appId && redirectUri) {
+      // OAuth flow: issue authorization code instead of token
+      try {
+        const authCode = await oauthService.createAuthorizationCode(
+          appId,
+          userId,
+          redirectUri,
+          'identity',
+          codeChallenge
+        );
+
+        // Register user with the app
+        await appService.registerAppUser(appId, userId, userId, 'conversation', {});
+
+        // Trigger webhook events
+        await webhookService.triggerWebhooks(appId, 'user.authenticated', {
+          userId,
+          email,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Build redirect URL with authorization code
+        let redirectUrl = `${redirectUri}?code=${authCode}`;
+        if (state) {
+          redirectUrl += `&state=${encodeURIComponent(state)}`;
+        }
+
+        return res.json({
+          authenticated: true,
+          authorizationCode: authCode,
+          redirectUrl,
+          assistantName,
+        });
+      } catch (err) {
+        console.error('OAuth authorization error:', err);
+        return res.status(500).json({ error: 'OAuth authorization failed.' });
+      }
+    }
+
+    // Normal flow: issue a full-session JWT (8 hours)
     const authToken = jwt.sign(
       { userId, email, assistantName },
       process.env.JWT_SECRET,
@@ -331,6 +384,92 @@ router.post('/login/verify-conversation', async (req, res) => {
   } catch (err) {
     console.error('Verify conversation error:', err);
     return res.status(500).json({ error: 'Internal server error during verification.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/auth/recover
+// Account recovery via one-time recovery code
+// ---------------------------------------------------------------------------
+router.post('/recover', async (req, res) => {
+  const { email, recoveryCode } = req.body;
+
+  if (!email || !recoveryCode) {
+    return res.status(400).json({ error: 'Email and recovery code are required.' });
+  }
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'Invalid email address.' });
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  try {
+    if (!process.env.DATABASE_URL) {
+      return res.status(200).json({
+        message: 'Account recovery demo successful.',
+        token: 'demo-token-xyz',
+        demo: true,
+      });
+    }
+
+    // Look up user by email
+    const userResult = await query(
+      `SELECT id, email, recovery_code_hash, recovery_code_used FROM users WHERE email = $1`,
+      [normalizedEmail]
+    );
+
+    if (userResult.rows.length === 0) {
+      // Don't reveal whether account exists
+      return res.status(401).json({ error: 'Invalid email or recovery code.' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Check if recovery code exists
+    if (!user.recovery_code_hash) {
+      return res.status(401).json({ error: 'This account has no recovery code set.' });
+    }
+
+    // Check if recovery code has already been used
+    if (user.recovery_code_used) {
+      return res.status(401).json({ error: 'Recovery code has already been used and cannot be reused.' });
+    }
+
+    // Validate the recovery code
+    const codeValid = await validateRecoveryCode(recoveryCode, user.recovery_code_hash);
+
+    if (!codeValid) {
+      // Record failed recovery attempt
+      await recordAttempt(normalizedEmail, false, 'recovery', req.ip);
+      return res.status(401).json({ error: 'Invalid email or recovery code.' });
+    }
+
+    // Mark recovery code as used (one-time use only)
+    await query(
+      `UPDATE users SET recovery_code_used = TRUE WHERE id = $1`,
+      [user.id]
+    );
+
+    // Issue a recovery token (shorter lived, for re-authentication)
+    // User will need to re-verify identity via conversation after this
+    const recoveryToken = jwt.sign(
+      { userId: user.id, email: user.email, type: 'recovery' },
+      process.env.JWT_SECRET,
+      { expiresIn: '30m' }  // 30 minutes to complete recovery
+    );
+
+    // Record successful recovery attempt
+    await recordAttempt(normalizedEmail, true, 'recovery', req.ip);
+
+    return res.status(200).json({
+      message: 'Recovery code validated. Please re-verify your identity.',
+      recoveryToken,
+      instruction: 'Use this token to create new conversation evidence and regain access.',
+    });
+  } catch (err) {
+    console.error('Account recovery error:', err);
+    return res.status(500).json({ error: 'Internal server error during account recovery.' });
   }
 });
 
