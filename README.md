@@ -2,13 +2,13 @@
 
 ## The Identity Layer for Virtual Worlds
 
-**Recall-Aegis.AI** is a federated, passwordless authentication system designed for the metaverse and virtual cyber spaces. Instead of maintaining separate credentials for each virtual world, users maintain a single identity that they carry across platforms.**
+**Recall-Aegis.AI** is a federated, passwordless authentication system designed for virtual cyber spaces. Instead of maintaining separate credentials for each virtual world, users maintain a single identity that they carry across platforms.**
 
 **One Identity. Multiple Cyber Spaces. No Passwords.**
 
 ### Why Recall-Aegis for Virtual Worlds?
 
-- 🎮 **Multi-Platform Identity** - Users log into different metaverse platforms with one identity
+- 🎮 **Multi-Platform Identity** - Users log into different virtual world platforms with one identity
 - 🔑 **Passwordless** - Users prove identity through conversational memory (what they've discussed with Aegis)
 - ⛓️ **Decentralized Federation** - Virtual world clients integrate via OAuth2-like flows
 - 🌍 **Cross-Reality** - Works for gaming, social platforms, virtual workspaces, anything
