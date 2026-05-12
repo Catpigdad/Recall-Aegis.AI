@@ -13,7 +13,7 @@
 - ⛓️ **Decentralized Federation** - Virtual world clients integrate via OAuth2-like flows
 - 🌍 **Cross-Reality** - Works for gaming, social platforms, virtual workspaces, anything
 - ⚡ **Real-time Events** - Virtual worlds receive webhooks when users authenticate
-- 🔐 **Secure** - Semantic verification, zero password storage
+- 🔐 **Secure** - Semantic verification, zero password storage, At signup, users receive a one-time recovery code. This is the only fallback. Store it securely.
 
 > **Experimental MVP** -- Demonstrating the future of virtual world authentication.
 
